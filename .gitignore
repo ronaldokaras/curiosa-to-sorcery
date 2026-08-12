@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+.venv/
+env/
+pythonenv/
+
+# Database (NUNCA SUBIR!)
+*.db
+*.sqlite
+*.sqlite3
+parking.db
+test.db
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and secrets
+*.log
+.env
+config.json
+secrets.json
+*.key
+*.pem
+
+# Build
+dist/
+build/
+*.egg-info/
