@@ -13,7 +13,6 @@
     "Card #", "Comentario", "# Cards na Edicao"
   ];
 
-  // Cabeçalhos para exportação
   const CABECALHO_SIMPLES = ["card name", "quantity"];
   const CABECALHO_COMPLETO = ["card name", "set", "finish", "product", "quantity", "notes"];
 
@@ -34,8 +33,8 @@
   // ============================================================
 
   let curiosaFile = null;
-  let setsList = [];          // lista completa de cartas dos sets (array de objetos)
-  let setsMap = new Map();    // chave "CardEN||SetEN" → objeto
+  let setsList = [];
+  let setsMap = new Map();
   let setsTotal = 0;
   let setsCarregados = false;
   let resultadoCSV = null;
@@ -59,14 +58,19 @@
   // UTILITÁRIOS
   // ============================================================
 
+  // Função auxiliar para tradução (usa a global window.t definida em i18n.js)
+  function _(key, params) {
+    return window.t ? window.t(key, params) : key;
+  }
+
   function norm(s) {
     return (s || "").trim().toLowerCase();
   }
 
-  function log(msg, type = "") {
+  function log(key, params = {}, type = "") {
     const line = document.createElement("div");
     if (type) line.className = type;
-    line.textContent = msg;
+    line.textContent = _(key, params);
     logEl.appendChild(line);
     logEl.scrollTop = logEl.scrollHeight;
   }
@@ -76,6 +80,7 @@
   }
 
   function parseCSV(text) {
+    // ... (exatamente igual ao original) ...
     const rows = [];
     let i = 0;
     const len = text.length;
@@ -122,6 +127,7 @@
   }
 
   function detectarColunas(headers) {
+    // ... igual ...
     const headersNorm = {};
     headers.forEach((h, idx) => {
       headersNorm[norm(h)] = idx;
@@ -140,6 +146,7 @@
   }
 
   function csvEscape(val) {
+    // ... igual ...
     const s = String(val ?? "");
     if (s.includes(",") || s.includes('"') || s.includes("\n")) {
       return `"${s.replace(/"/g, '""')}"`;
@@ -147,13 +154,8 @@
     return s;
   }
 
-  /**
-   * Gera o CSV de saída conforme o modo selecionado.
-   * @param {Array} linhas - array de objetos (linhas finais com campos do CABECALHO_LIGA)
-   * @param {string} modo - "minhas" ou "completos"
-   * @returns {string} conteúdo CSV
-   */
   function gerarCSVString(linhas, modo) {
+    // ... igual ...
     const ehCompleto = modo === "completos";
     const cabecalho = ehCompleto ? CABECALHO_COMPLETO : CABECALHO_SIMPLES;
     const lines = [cabecalho.map(csvEscape).join(",")];
@@ -165,7 +167,7 @@
       if (ehCompleto) {
         const set = row["Edicao (EN)"] || "";
         const finish = row["Extras"] || "";
-        const product = row["Comentario"] || ""; // ou deixar vazio se não houver informação
+        const product = row["Comentario"] || "";
         const notes = "";
         lines.push([
           csvEscape(cardName),
@@ -179,7 +181,6 @@
         lines.push([csvEscape(cardName), csvEscape(quantity)].join(","));
       }
     }
-
     return lines.join("\n");
   }
 
@@ -190,10 +191,11 @@
   }
 
   // ============================================================
-  // CARREGAMENTO DOS SETS
+  // CARREGAMENTO DOS SETS (inalterado)
   // ============================================================
 
   async function carregarSets(force = false) {
+    // ... exatamente igual ao original ...
     if (carregandoSets) return setsCarregados;
     carregandoSets = true;
 
@@ -273,9 +275,7 @@
           list: newList,
           map: Object.fromEntries(newMap)
         }));
-      } catch (_) {
-        // localStorage pode estar cheio — ignora
-      }
+      } catch (_) {}
 
       carregandoSets = false;
       return true;
@@ -288,13 +288,12 @@
   }
 
   // ============================================================
-  // PROCESSAMENTO DO ARQUIVO DO USUÁRIO
+  // PROCESSAMENTO (inalterado)
   // ============================================================
 
   function processarArquivoUsuario(rows, colMap) {
-    // Retorna um Map: chave "card||set" → array de { quantity, extras }
+    // ... igual ...
     const atualizacoes = new Map();
-
     const temSet = colMap.set !== undefined;
     const temFinish = colMap.finish !== undefined;
 
@@ -315,16 +314,11 @@
       }
       atualizacoes.get(key).push({ quantity, extras, cardName, setName });
     }
-
     return atualizacoes;
   }
 
-  // ============================================================
-  // GERAÇÃO DAS LINHAS FINAIS
-  // ============================================================
-
   function gerarLinhas(atualizacoes) {
-    // Agora ambos os modos usam a mesma lógica: só as cartas do arquivo.
+    // ... igual ...
     const linhas = [];
     const processadas = new Set();
     const naoEncontradas = [];
@@ -333,7 +327,6 @@
       const base = setsMap.get(key);
 
       if (base) {
-        // Match com a base: enriquece os dados
         for (const entrada of entradas) {
           const nova = { ...base };
           nova["Quantidade"] = entrada.quantity;
@@ -342,7 +335,6 @@
         }
         processadas.add(key);
       } else {
-        // Sem match: gera linha básica com os dados do arquivo
         for (const entrada of entradas) {
           const nova = criarLinhaVazia();
           nova["Card (EN)"] = entrada.cardName;
@@ -354,7 +346,6 @@
         naoEncontradas.push(key);
       }
     }
-
     return { linhas, processadas, naoEncontradas };
   }
 
@@ -364,7 +355,7 @@
 
   function handleCuriosaFile(file) {
     if (!file.name.toLowerCase().endsWith(".csv")) {
-      alert("Selecione um arquivo .csv");
+      alert(_('alert.invalid_file'));
       return;
     }
     curiosaFile = file;
@@ -392,20 +383,8 @@
     if (fileInput.files.length) handleCuriosaFile(fileInput.files[0]);
   });
 
-  recarregarLink.addEventListener("click", async (e) => {
-    e.preventDefault();
-    setsCarregados = false;
-    log("Recarregando bases dos sets...", "info");
-    const ok = await carregarSets(true);
-    if (ok) {
-      log(`Bases recarregadas: ${setsTotal} cartas`, "ok");
-    } else {
-      log("Falha ao recarregar as bases", "err");
-    }
-  });
-
   // ============================================================
-  // CONVERSÃO PRINCIPAL
+  // CONVERSÃO PRINCIPAL (com logs traduzidos)
   // ============================================================
 
   btnConvert.addEventListener("click", async () => {
@@ -416,112 +395,107 @@
     btnDownload.style.display = "none";
     statsEl.innerHTML = "";
 
-    log("Lendo arquivo do Curiosa...", "info");
+    log('log.reading');
 
     const text = await curiosaFile.text();
     const rows = parseCSV(text);
 
     if (rows.length < 2) {
-      log("Arquivo vazio ou inválido.", "err");
+      log('log.empty', {}, 'err');
       return;
     }
 
     const headers = rows[0].map(h => h.replace(/^\uFEFF/, "").trim());
-    log(`Colunas encontradas: ${headers.join(", ")}`, "info");
+    log('log.columns', { cols: headers.join(", ") }, 'info');
 
     const colMap = detectarColunas(headers);
 
-    // Só exige card_name e quantity
     if (colMap.card_name === undefined) {
-      log("Coluna obrigatória não encontrada: card name", "err");
-      log("O CSV precisa ter pelo menos: card name e quantity", "warn");
+      log('log.missing_card', {}, 'err');
+      log('log.missing_columns', {}, 'warn');
       return;
     }
     if (colMap.quantity === undefined) {
-      log("Coluna obrigatória não encontrada: quantity", "err");
-      log("O CSV precisa ter pelo menos: card name e quantity", "warn");
+      log('log.missing_quantity', {}, 'err');
+      log('log.missing_columns', {}, 'warn');
       return;
     }
 
-    log("Colunas essenciais OK", "ok");
+    log('log.columns_ok', {}, 'ok');
 
     if (colMap.set === undefined) {
-      log("Coluna 'set' não encontrada — match com bases ficará limitado", "warn");
+      log('log.warn_set', {}, 'warn');
     }
     if (colMap.finish === undefined) {
-      log("Coluna 'finish' não encontrada — cartas serão tratadas como non-foil", "warn");
+      log('log.warn_finish', {}, 'warn');
     }
 
     const modo = document.querySelector('input[name="modo"]:checked').value;
 
-    // Carrega sets se necessário
     if (!setsCarregados) {
-      log("Carregando bases dos sets...", "info");
+      log('log.loading_sets', {}, 'info');
       const ok = await carregarSets(false);
       if (!ok) {
-        log("Não foi possível carregar as bases dos sets.", "err");
-        log("Continuando sem enriquecimento dos sets...", "warn");
-        // Não interrompe: ainda é possível converter sem as bases
+        log('log.loading_error', {}, 'err');
+        log('log.loading_continue', {}, 'warn');
       } else {
-        log(`${setsTotal} cartas carregadas das bases`, "ok");
+        log('log.loaded_sets', { total: setsTotal }, 'ok');
       }
     } else {
-      log(`${setsTotal} cartas disponíveis nas bases`, "ok");
+      log('log.available_sets', { total: setsTotal }, 'ok');
     }
 
-    // Processa o arquivo do usuário
     const atualizacoes = processarArquivoUsuario(rows, colMap);
-    log(`${atualizacoes.size} combinações únicas (carta + set) encontradas`, "ok");
+    log('log.unique_combinations', { count: atualizacoes.size }, 'ok');
 
     if (atualizacoes.size === 0) {
-      log("Nenhuma carta válida encontrada no arquivo.", "err");
+      log('log.no_cards', {}, 'err');
       return;
     }
 
-    // Gera as linhas finais (somente as cartas do arquivo)
     const { linhas, processadas, naoEncontradas } = gerarLinhas(atualizacoes);
 
     if (linhas.length === 0) {
-      log("Nenhuma linha gerada.", "err");
+      log('log.no_lines', {}, 'err');
       return;
     }
 
-    // Gera o CSV conforme o modo (apenas muda o formato das colunas)
     resultadoCSV = gerarCSVString(linhas, modo);
 
-    // Estatísticas
+    // Estatísticas com tradução
     statsEl.innerHTML = `
       <div class="stat">
         <div class="stat-value">${processadas.size}</div>
-        <div class="stat-label">Com match</div>
+        <div class="stat-label">${_('log.match_stats_label')}</div>
       </div>
       <div class="stat">
         <div class="stat-value">${naoEncontradas.length}</div>
-        <div class="stat-label">Sem match</div>
+        <div class="stat-label">${_('log.unmatched_label')}</div>
       </div>
       <div class="stat">
         <div class="stat-value">${linhas.length}</div>
-        <div class="stat-label">Linhas finais</div>
+        <div class="stat-label">${_('log.final_lines_label')}</div>
       </div>
     `;
 
     if (naoEncontradas.length > 0) {
-      log(`${naoEncontradas.length} carta(s) sem match nas bases:`, "warn");
+      log('log.unmatched_list', { count: naoEncontradas.length }, 'warn');
       naoEncontradas.slice(0, 30).forEach(k => {
         const [card, set] = k.split("||");
-        log(`  • ${card}${set ? ` [${set}]` : ""}`, "warn");
+        log(`  • ${card}${set ? ` [${set}]` : ""}`, {}, 'warn');
       });
       if (naoEncontradas.length > 30) {
-        log(`  ... e mais ${naoEncontradas.length - 30}`, "warn");
+        log('log.unmatched_more', { count: naoEncontradas.length - 30 }, 'warn');
       }
     }
 
-    log(`Conversão concluída — ${linhas.length} linhas geradas (formato ${modo === "completos" ? "completo" : "simples"})`, "ok");
+    const modeLabel = modo === "completos" ? _('mode.complete') : _('mode.simple');
+    log('log.conversion_done', { total: linhas.length, mode: modeLabel }, 'ok');
     btnDownload.style.display = "inline-flex";
   });
 
   // ============================================================
-  // DOWNLOAD
+  // DOWNLOAD (inalterado)
   // ============================================================
 
   btnDownload.addEventListener("click", () => {
@@ -535,6 +509,22 @@
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  });
+
+  // ============================================================
+  // RECARREGAR BASES
+  // ============================================================
+
+  recarregarLink.addEventListener("click", async (e) => {
+    e.preventDefault();
+    setsCarregados = false;
+    log('log.reloading', {}, 'info');
+    const ok = await carregarSets(true);
+    if (ok) {
+      log('log.reloaded', { total: setsTotal }, 'ok');
+    } else {
+      log('log.reload_failed', {}, 'err');
+    }
   });
 
   // ============================================================
