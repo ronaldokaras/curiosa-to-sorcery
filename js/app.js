@@ -323,67 +323,35 @@
   // GERAÇÃO DAS LINHAS FINAIS
   // ============================================================
 
-  function gerarLinhas(atualizacoes, modo) {
+  function gerarLinhas(atualizacoes) {
+    // Agora ambos os modos usam a mesma lógica: só as cartas do arquivo.
     const linhas = [];
     const processadas = new Set();
     const naoEncontradas = [];
 
-    if (modo === "minhas") {
-      // Só as cartas do usuário
-      for (const [key, entradas] of atualizacoes.entries()) {
-        const base = setsMap.get(key);
+    for (const [key, entradas] of atualizacoes.entries()) {
+      const base = setsMap.get(key);
 
-        if (base) {
-          for (const entrada of entradas) {
-            const nova = { ...base };
-            nova["Quantidade"] = entrada.quantity;
-            nova["Extras"] = entrada.extras;
-            linhas.push(nova);
-          }
-          processadas.add(key);
-        } else {
-          // Sem match → gera linha básica
-          for (const entrada of entradas) {
-            const nova = criarLinhaVazia();
-            nova["Card (EN)"] = entrada.cardName;
-            nova["Edicao (EN)"] = entrada.setName;
-            nova["Quantidade"] = entrada.quantity;
-            nova["Extras"] = entrada.extras;
-            linhas.push(nova);
-          }
-          naoEncontradas.push(key);
-        }
-      }
-    } else {
-      // Sets completos + atualiza quantidades do usuário
-      for (const carta of setsList) {
-        const key = `${carta["Card (EN)"]}||${carta["Edicao (EN)"]}`;
-
-        if (atualizacoes.has(key)) {
-          const entradas = atualizacoes.get(key);
-          for (const entrada of entradas) {
-            const nova = { ...carta };
-            nova["Quantidade"] = entrada.quantity;
-            nova["Extras"] = entrada.extras;
-            linhas.push(nova);
-          }
-          processadas.add(key);
-        } else {
-          // Mantém a carta original do set (quantidade original ou vazia)
-          // Se a quantidade estiver vazia, coloca "0" para compatibilidade
-          const nova = { ...carta };
-          if (!nova["Quantidade"]) {
-            nova["Quantidade"] = "0";
-          }
+      if (base) {
+        // Match com a base: enriquece os dados
+        for (const entrada of entradas) {
+          const nova = { ...base };
+          nova["Quantidade"] = entrada.quantity;
+          nova["Extras"] = entrada.extras;
           linhas.push(nova);
         }
-      }
-
-      // Cartas do usuário que não existiam nos sets
-      for (const key of atualizacoes.keys()) {
-        if (!processadas.has(key)) {
-          naoEncontradas.push(key);
+        processadas.add(key);
+      } else {
+        // Sem match: gera linha básica com os dados do arquivo
+        for (const entrada of entradas) {
+          const nova = criarLinhaVazia();
+          nova["Card (EN)"] = entrada.cardName;
+          nova["Edicao (EN)"] = entrada.setName;
+          nova["Quantidade"] = entrada.quantity;
+          nova["Extras"] = entrada.extras;
+          linhas.push(nova);
         }
+        naoEncontradas.push(key);
       }
     }
 
@@ -492,11 +460,8 @@
       const ok = await carregarSets(false);
       if (!ok) {
         log("Não foi possível carregar as bases dos sets.", "err");
-        if (modo === "completos") {
-          log("O modo 'Sets completos' precisa das bases. Tente o modo 'Só as cartas que eu tenho'.", "warn");
-          return;
-        }
         log("Continuando sem enriquecimento dos sets...", "warn");
+        // Não interrompe: ainda é possível converter sem as bases
       } else {
         log(`${setsTotal} cartas carregadas das bases`, "ok");
       }
@@ -513,15 +478,15 @@
       return;
     }
 
-    // Gera as linhas finais
-    const { linhas, processadas, naoEncontradas } = gerarLinhas(atualizacoes, modo);
+    // Gera as linhas finais (somente as cartas do arquivo)
+    const { linhas, processadas, naoEncontradas } = gerarLinhas(atualizacoes);
 
     if (linhas.length === 0) {
       log("Nenhuma linha gerada.", "err");
       return;
     }
 
-    // Gera o CSV conforme o modo
+    // Gera o CSV conforme o modo (apenas muda o formato das colunas)
     resultadoCSV = gerarCSVString(linhas, modo);
 
     // Estatísticas
