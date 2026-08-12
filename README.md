@@ -6,7 +6,7 @@ Ferramenta da comunidade brasileira para converter o CSV exportado do [curiosa.i
 
 ### 🔗 Acesse a ferramenta
 
-**[Abrir Conversor](https://SEU-USUARIO.github.io/curiosa-to-sorcery/)**
+**[Abrir Conversor](https://ronaldokaras.github.io/curiosa-to-sorcery/)**
 
 ---
 
