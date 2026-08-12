@@ -1,6 +1,10 @@
 (function () {
   'use strict';
 
+  // ============================================================
+  // CONFIGURAÇÃO
+  // ============================================================
+
   const CABECALHO_LIGA = [
     "Edicao (PTBR)", "Edicao (EN)", "Edicao (Sigla)",
     "Card (PT)", "Card (EN)", "Quantidade",
@@ -8,6 +12,10 @@
     "Raridade", "Cor (C D O E Y F R G L M P W)", "Extras",
     "Card #", "Comentario", "# Cards na Edicao"
   ];
+
+  // Cabeçalhos para exportação
+  const CABECALHO_SIMPLES = ["card name", "quantity"];
+  const CABECALHO_COMPLETO = ["card name", "set", "finish", "product", "quantity", "notes"];
 
   const MAPA_COLUNAS = {
     card_name: ["card name", "card_name", "name", "card", "cardname"],
@@ -19,15 +27,23 @@
   const SETS_BASE_URL = "sets/";
   const LIST_JSON = "list.json";
   const CACHE_KEY = "setsCache";
-  const CACHE_VERSION = "v2";
+  const CACHE_VERSION = "v3";
+
+  // ============================================================
+  // ESTADO
+  // ============================================================
 
   let curiosaFile = null;
-  let setsMap = new Map();
+  let setsList = [];          // lista completa de cartas dos sets (array de objetos)
+  let setsMap = new Map();    // chave "CardEN||SetEN" → objeto
   let setsTotal = 0;
   let setsCarregados = false;
   let resultadoCSV = null;
-  let linhasGeradas = [];
   let carregandoSets = false;
+
+  // ============================================================
+  // DOM
+  // ============================================================
 
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('fileInput');
@@ -38,6 +54,10 @@
   const statsEl = document.getElementById('stats');
   const btnDownload = document.getElementById('btnDownload');
   const recarregarLink = document.getElementById('recarregarSets');
+
+  // ============================================================
+  // UTILITÁRIOS
+  // ============================================================
 
   function norm(s) {
     return (s || "").trim().toLowerCase();
@@ -103,7 +123,10 @@
 
   function detectarColunas(headers) {
     const headersNorm = {};
-    headers.forEach((h, idx) => { headersNorm[norm(h)] = idx; });
+    headers.forEach((h, idx) => {
+      headersNorm[norm(h)] = idx;
+    });
+
     const map = {};
     for (const [key, possiveis] of Object.entries(MAPA_COLUNAS)) {
       for (const p of possiveis) {
@@ -124,13 +147,51 @@
     return s;
   }
 
-  function gerarCSVString(linhas) {
-    const lines = [CABECALHO_LIGA.map(csvEscape).join(",")];
+  /**
+   * Gera o CSV de saída conforme o modo selecionado.
+   * @param {Array} linhas - array de objetos (linhas finais com campos do CABECALHO_LIGA)
+   * @param {string} modo - "minhas" ou "completos"
+   * @returns {string} conteúdo CSV
+   */
+  function gerarCSVString(linhas, modo) {
+    const ehCompleto = modo === "completos";
+    const cabecalho = ehCompleto ? CABECALHO_COMPLETO : CABECALHO_SIMPLES;
+    const lines = [cabecalho.map(csvEscape).join(",")];
+
     for (const row of linhas) {
-      lines.push(CABECALHO_LIGA.map(col => csvEscape(row[col] || "")).join(","));
+      const cardName = row["Card (EN)"] || row["Card (PT)"] || "";
+      const quantity = row["Quantidade"] ?? "";
+
+      if (ehCompleto) {
+        const set = row["Edicao (EN)"] || "";
+        const finish = row["Extras"] || "";
+        const product = row["Comentario"] || ""; // ou deixar vazio se não houver informação
+        const notes = "";
+        lines.push([
+          csvEscape(cardName),
+          csvEscape(set),
+          csvEscape(finish),
+          csvEscape(product),
+          csvEscape(quantity),
+          csvEscape(notes)
+        ].join(","));
+      } else {
+        lines.push([csvEscape(cardName), csvEscape(quantity)].join(","));
+      }
     }
+
     return lines.join("\n");
   }
+
+  function criarLinhaVazia() {
+    const obj = {};
+    CABECALHO_LIGA.forEach(c => obj[c] = "");
+    return obj;
+  }
+
+  // ============================================================
+  // CARREGAMENTO DOS SETS
+  // ============================================================
 
   async function carregarSets(force = false) {
     if (carregandoSets) return setsCarregados;
@@ -142,7 +203,8 @@
         if (cached) {
           const data = JSON.parse(cached);
           if (data.version === CACHE_VERSION && data.setsTotal > 0) {
-            setsMap = new Map(Object.entries(data.map));
+            setsList = data.list || [];
+            setsMap = new Map(Object.entries(data.map || {}));
             setsTotal = data.setsTotal;
             setsCarregados = true;
             carregandoSets = false;
@@ -156,16 +218,19 @@
       const respList = await fetch(SETS_BASE_URL + LIST_JSON);
       if (!respList.ok) throw new Error(`HTTP ${respList.status}`);
       const arquivos = await respList.json();
+
       if (!Array.isArray(arquivos) || arquivos.length === 0) {
-        throw new Error("Nenhum arquivo listado.");
+        throw new Error("Nenhum arquivo listado em list.json");
       }
 
-      let total = 0;
+      const newList = [];
       const newMap = new Map();
+      let total = 0;
 
       for (const nome of arquivos) {
         const resp = await fetch(SETS_BASE_URL + nome);
         if (!resp.ok) continue;
+
         const texto = await resp.text();
         const rows = parseCSV(texto);
         if (rows.length < 2) continue;
@@ -186,13 +251,16 @@
             const idx = headers.indexOf(col);
             obj[col] = (idx >= 0 ? row[idx] : "").trim();
           });
+
+          newList.push(obj);
           newMap.set(`${card}||${set}`, obj);
           total++;
         }
       }
 
-      if (total === 0) throw new Error("Nenhuma carta válida encontrada.");
+      if (total === 0) throw new Error("Nenhuma carta válida encontrada nos sets");
 
+      setsList = newList;
       setsMap = newMap;
       setsTotal = total;
       setsCarregados = true;
@@ -202,9 +270,12 @@
           version: CACHE_VERSION,
           cachedAt: new Date().toLocaleString("pt-BR"),
           setsTotal: total,
+          list: newList,
           map: Object.fromEntries(newMap)
         }));
-      } catch (_) {}
+      } catch (_) {
+        // localStorage pode estar cheio — ignora
+      }
 
       carregandoSets = false;
       return true;
@@ -215,6 +286,113 @@
       return false;
     }
   }
+
+  // ============================================================
+  // PROCESSAMENTO DO ARQUIVO DO USUÁRIO
+  // ============================================================
+
+  function processarArquivoUsuario(rows, colMap) {
+    // Retorna um Map: chave "card||set" → array de { quantity, extras }
+    const atualizacoes = new Map();
+
+    const temSet = colMap.set !== undefined;
+    const temFinish = colMap.finish !== undefined;
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      const cardName = (row[colMap.card_name] || "").trim();
+      if (!cardName) continue;
+
+      const setName = temSet ? (row[colMap.set] || "").trim() : "";
+      const finish = temFinish ? (row[colMap.finish] || "").trim() : "";
+      const quantity = (row[colMap.quantity] || "1").trim() || "1";
+
+      const extras = ["foil", "true", "1", "yes"].includes(norm(finish)) ? "Foil" : "";
+      const key = `${cardName}||${setName}`;
+
+      if (!atualizacoes.has(key)) {
+        atualizacoes.set(key, []);
+      }
+      atualizacoes.get(key).push({ quantity, extras, cardName, setName });
+    }
+
+    return atualizacoes;
+  }
+
+  // ============================================================
+  // GERAÇÃO DAS LINHAS FINAIS
+  // ============================================================
+
+  function gerarLinhas(atualizacoes, modo) {
+    const linhas = [];
+    const processadas = new Set();
+    const naoEncontradas = [];
+
+    if (modo === "minhas") {
+      // Só as cartas do usuário
+      for (const [key, entradas] of atualizacoes.entries()) {
+        const base = setsMap.get(key);
+
+        if (base) {
+          for (const entrada of entradas) {
+            const nova = { ...base };
+            nova["Quantidade"] = entrada.quantity;
+            nova["Extras"] = entrada.extras;
+            linhas.push(nova);
+          }
+          processadas.add(key);
+        } else {
+          // Sem match → gera linha básica
+          for (const entrada of entradas) {
+            const nova = criarLinhaVazia();
+            nova["Card (EN)"] = entrada.cardName;
+            nova["Edicao (EN)"] = entrada.setName;
+            nova["Quantidade"] = entrada.quantity;
+            nova["Extras"] = entrada.extras;
+            linhas.push(nova);
+          }
+          naoEncontradas.push(key);
+        }
+      }
+    } else {
+      // Sets completos + atualiza quantidades do usuário
+      for (const carta of setsList) {
+        const key = `${carta["Card (EN)"]}||${carta["Edicao (EN)"]}`;
+
+        if (atualizacoes.has(key)) {
+          const entradas = atualizacoes.get(key);
+          for (const entrada of entradas) {
+            const nova = { ...carta };
+            nova["Quantidade"] = entrada.quantity;
+            nova["Extras"] = entrada.extras;
+            linhas.push(nova);
+          }
+          processadas.add(key);
+        } else {
+          // Mantém a carta original do set (quantidade original ou vazia)
+          // Se a quantidade estiver vazia, coloca "0" para compatibilidade
+          const nova = { ...carta };
+          if (!nova["Quantidade"]) {
+            nova["Quantidade"] = "0";
+          }
+          linhas.push(nova);
+        }
+      }
+
+      // Cartas do usuário que não existiam nos sets
+      for (const key of atualizacoes.keys()) {
+        if (!processadas.has(key)) {
+          naoEncontradas.push(key);
+        }
+      }
+    }
+
+    return { linhas, processadas, naoEncontradas };
+  }
+
+  // ============================================================
+  // EVENTOS DE ARQUIVO
+  // ============================================================
 
   function handleCuriosaFile(file) {
     if (!file.name.toLowerCase().endsWith(".csv")) {
@@ -227,7 +405,6 @@
     btnConvert.disabled = false;
     resultArea.classList.remove("visible");
     resultadoCSV = null;
-    linhasGeradas = [];
   }
 
   dropzone.addEventListener("click", () => fileInput.click());
@@ -250,8 +427,18 @@
   recarregarLink.addEventListener("click", async (e) => {
     e.preventDefault();
     setsCarregados = false;
-    await carregarSets(true);
+    log("Recarregando bases dos sets...", "info");
+    const ok = await carregarSets(true);
+    if (ok) {
+      log(`Bases recarregadas: ${setsTotal} cartas`, "ok");
+    } else {
+      log("Falha ao recarregar as bases", "err");
+    }
   });
+
+  // ============================================================
+  // CONVERSÃO PRINCIPAL
+  // ============================================================
 
   btnConvert.addEventListener("click", async () => {
     if (!curiosaFile) return;
@@ -260,7 +447,8 @@
     resultArea.classList.add("visible");
     btnDownload.style.display = "none";
     statsEl.innerHTML = "";
-    log("Lendo arquivo...", "info");
+
+    log("Lendo arquivo do Curiosa...", "info");
 
     const text = await curiosaFile.text();
     const rows = parseCSV(text);
@@ -271,92 +459,79 @@
     }
 
     const headers = rows[0].map(h => h.replace(/^\uFEFF/, "").trim());
-    log(`Colunas: ${headers.join(", ")}`, "info");
+    log(`Colunas encontradas: ${headers.join(", ")}`, "info");
 
     const colMap = detectarColunas(headers);
-    const essenciais = ["card_name", "set", "finish", "quantity"];
-    const faltando = essenciais.filter(k => colMap[k] === undefined);
 
-    if (faltando.length) {
-      log(`Colunas essenciais não encontradas: ${faltando.join(", ")}`, "err");
-      log("O CSV precisa ter colunas como: card name, set, finish, quantity", "warn");
+    // Só exige card_name e quantity
+    if (colMap.card_name === undefined) {
+      log("Coluna obrigatória não encontrada: card name", "err");
+      log("O CSV precisa ter pelo menos: card name e quantity", "warn");
+      return;
+    }
+    if (colMap.quantity === undefined) {
+      log("Coluna obrigatória não encontrada: quantity", "err");
+      log("O CSV precisa ter pelo menos: card name e quantity", "warn");
       return;
     }
 
-    log(`Mapeamento OK`, "ok");
+    log("Colunas essenciais OK", "ok");
+
+    if (colMap.set === undefined) {
+      log("Coluna 'set' não encontrada — match com bases ficará limitado", "warn");
+    }
+    if (colMap.finish === undefined) {
+      log("Coluna 'finish' não encontrada — cartas serão tratadas como non-foil", "warn");
+    }
 
     const modo = document.querySelector('input[name="modo"]:checked').value;
 
-    if (modo === "completo") {
-      if (!setsCarregados) {
-        log("Carregando bases dos sets...", "info");
-        const ok = await carregarSets(false);
-        if (!ok) {
-          log("Não foi possível carregar os sets. Use o modo Simples.", "err");
+    // Carrega sets se necessário
+    if (!setsCarregados) {
+      log("Carregando bases dos sets...", "info");
+      const ok = await carregarSets(false);
+      if (!ok) {
+        log("Não foi possível carregar as bases dos sets.", "err");
+        if (modo === "completos") {
+          log("O modo 'Sets completos' precisa das bases. Tente o modo 'Só as cartas que eu tenho'.", "warn");
           return;
         }
-      }
-      log(`${setsTotal} cartas disponíveis para match`, "ok");
-    }
-
-    const linhas = [];
-    let matched = 0;
-    let unmatched = 0;
-    const unmatchedList = [];
-
-    for (let r = 1; r < rows.length; r++) {
-      const row = rows[r];
-      const cardName = (row[colMap.card_name] || "").trim();
-      const setName = (row[colMap.set] || "").trim();
-      const finish = (row[colMap.finish] || "").trim();
-      const quantity = (row[colMap.quantity] || "1").trim() || "1";
-
-      if (!cardName || !setName) continue;
-
-      const extras = ["foil", "true", "1", "yes"].includes(norm(finish)) ? "Foil" : "";
-
-      if (modo === "completo" && setsCarregados) {
-        const key = `${cardName}||${setName}`;
-        const base = setsMap.get(key);
-        if (base) {
-          const nova = { ...base };
-          nova["Quantidade"] = quantity;
-          nova["Extras"] = extras;
-          linhas.push(nova);
-          matched++;
-        } else {
-          unmatched++;
-          if (unmatchedList.length < 30) {
-            unmatchedList.push(`${cardName} [${setName}]`);
-          }
-        }
+        log("Continuando sem enriquecimento dos sets...", "warn");
       } else {
-        const nova = {};
-        CABECALHO_LIGA.forEach(c => nova[c] = "");
-        nova["Edicao (EN)"] = setName;
-        nova["Card (EN)"] = cardName;
-        nova["Quantidade"] = quantity;
-        nova["Extras"] = extras;
-        linhas.push(nova);
-        matched++;
+        log(`${setsTotal} cartas carregadas das bases`, "ok");
       }
+    } else {
+      log(`${setsTotal} cartas disponíveis nas bases`, "ok");
     }
 
-    if (linhas.length === 0) {
-      log("Nenhuma linha gerada. Verifique o conteúdo do CSV.", "err");
+    // Processa o arquivo do usuário
+    const atualizacoes = processarArquivoUsuario(rows, colMap);
+    log(`${atualizacoes.size} combinações únicas (carta + set) encontradas`, "ok");
+
+    if (atualizacoes.size === 0) {
+      log("Nenhuma carta válida encontrada no arquivo.", "err");
       return;
     }
 
-    linhasGeradas = linhas;
-    resultadoCSV = gerarCSVString(linhas);
+    // Gera as linhas finais
+    const { linhas, processadas, naoEncontradas } = gerarLinhas(atualizacoes, modo);
 
+    if (linhas.length === 0) {
+      log("Nenhuma linha gerada.", "err");
+      return;
+    }
+
+    // Gera o CSV conforme o modo
+    resultadoCSV = gerarCSVString(linhas, modo);
+
+    // Estatísticas
     statsEl.innerHTML = `
       <div class="stat">
-        <div class="stat-value">${matched}</div>
-        <div class="stat-label">Convertidas</div>
+        <div class="stat-value">${processadas.size}</div>
+        <div class="stat-label">Com match</div>
       </div>
       <div class="stat">
-        <div class="stat-value">${unmatched}</div>
+        <div class="stat-value">${naoEncontradas.length}</div>
         <div class="stat-label">Sem match</div>
       </div>
       <div class="stat">
@@ -365,17 +540,24 @@
       </div>
     `;
 
-    if (unmatched > 0) {
-      log(`${unmatched} carta(s) não encontradas nos sets:`, "warn");
-      unmatchedList.forEach(u => log(`  • ${u}`, "warn"));
-      if (unmatched > unmatchedList.length) {
-        log(`  ... e mais ${unmatched - unmatchedList.length}`, "warn");
+    if (naoEncontradas.length > 0) {
+      log(`${naoEncontradas.length} carta(s) sem match nas bases:`, "warn");
+      naoEncontradas.slice(0, 30).forEach(k => {
+        const [card, set] = k.split("||");
+        log(`  • ${card}${set ? ` [${set}]` : ""}`, "warn");
+      });
+      if (naoEncontradas.length > 30) {
+        log(`  ... e mais ${naoEncontradas.length - 30}`, "warn");
       }
     }
 
-    log(`Conversão concluída — ${linhas.length} linhas geradas`, "ok");
+    log(`Conversão concluída — ${linhas.length} linhas geradas (formato ${modo === "completos" ? "completo" : "simples"})`, "ok");
     btnDownload.style.display = "inline-flex";
   });
+
+  // ============================================================
+  // DOWNLOAD
+  // ============================================================
 
   btnDownload.addEventListener("click", () => {
     if (!resultadoCSV) return;
@@ -390,6 +572,9 @@
     URL.revokeObjectURL(url);
   });
 
-  // Carrega sets em background silenciosamente
+  // ============================================================
+  // INIT
+  // ============================================================
+
   carregarSets(false);
 })();
